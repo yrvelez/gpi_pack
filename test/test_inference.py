@@ -48,7 +48,15 @@ def test_estimate_k_categorical():
         architecture_z=[2048],  # deconfounder architecture
     )
     
-    # Assert that ate is a float
-    assert isinstance(ate, float)
-    # Assert that standard error is positive
-    assert se > 0
+    # Assert that ate is a numpy array
+    assert isinstance(ate, np.ndarray), "ATE should be a numpy array"
+    
+    # Assert that ate has length 3
+    assert len(ate) == 3, f"ATE array should have length 3, but has length {len(ate)}"
+    
+    # Also check if se has the same length
+    assert isinstance(se, np.ndarray), "SE should be a numpy array"
+    assert len(se) == 3, f"SE array should have length 3, but has length {len(se)}"
+    
+    # Assert that all standard errors are positive
+    assert np.all(se > 0), "All standard errors should be positive"
