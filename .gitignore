@@ -1,0 +1,9 @@
+test/development
+myenv
+test/.env
+__pycache__
+src/gpi_pack.egg-info
+pytest_cache
+.DS_Store
+*.pyc
+__pycache__/
