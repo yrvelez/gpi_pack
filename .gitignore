@@ -1,9 +1,45 @@
-test/development
-myenv
-test/.env
-__pycache__
+# Distribution / packaging
 src/gpi_pack.egg-info
-pytest_cache
-.DS_Store
-*.pyc
+myenv
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Python bytecode
 __pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.pypirc
+.venv
+env/
+venv/
+ENV/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Cache directories
+.mypy_cache/
+
+# Development directories
+test/development/
+test/.env
