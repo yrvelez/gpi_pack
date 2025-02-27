@@ -1,9 +1,9 @@
 # GPI: Genrative-AI Powered Inference
-[![PyPI version](https://img.shields.io/pypi/v/gencausal.svg)](https://pypi.org/project/gencausal/)
-[![Python Versions](https://img.shields.io/pypi/pyversions/gencausal.svg)](https://pypi.org/project/gencausal/)
+[![PyPI version](https://img.shields.io/pypi/v/gpi_pack.svg)](https://pypi.org/project/gpi_pack/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/gpi_pack.svg)](https://pypi.org/project/gpi_pack/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[gpi_pack] is a Python package for statistical inference with text and image data powered by Large Language Models.
+[gpi_pack](https://gpi-pack.github.io/) is a Python package for statistical inference with text and image data powered by Large Language Models.
 
 ## Table of Contents
 - [Installation](#installation)
@@ -18,7 +18,7 @@
 The package requires Python 3.7 or higher. The main dependencies are listed in the [requirements.txt file](requirements.txt).
 
 ### Installing via PyPI
-You can install [gpi_pack] directly using pip:
+You can install gpi_pack directly using pip:
 
 ```bash
 pip install gpi_pack
@@ -48,8 +48,8 @@ checkpoint = 'meta-llama/Meta-Llama-3.1-8B-Instruct' #You can replace this if yo
 ## Load tokenizer and pretrained model
 tokenizer = AutoTokenizer.from_pretrained(checkpoint, token = <YOUR HUGGINGFACE TOKEN>)
 model = AutoModelForCausalLM.from_pretrained(
-    checkpoint, 
-    device_map="auto", 
+    checkpoint,
+    device_map="auto",
     torch_dtype=torch.float16
 )
 ```

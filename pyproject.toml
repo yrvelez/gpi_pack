@@ -18,21 +18,21 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10", 
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
 ]
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 dependencies = [
-    "numpy",
-    "scipy",
-    "matplotlib",
-    "torch",
-    "scikit-learn",
-    "pandas",
-    "transformers",
-    "tqdm",
-    "accelerate",
-    "patsy",
+    "numpy>=2.2.3",
+    "scipy>=1.15.2",
+    "matplotlib>=3.10.0",
+    "torch>=2.6.0",
+    "scikit-learn>=1.6.1",
+    "pandas>=2.2.3",
+    "transformers>=4.49.0",
+    "tqdm>=4.67.1",
+    "accelerate>=1.4.0",
+    "patsy>=1.0.1",
 ]
 
 [project.optional-dependencies]
