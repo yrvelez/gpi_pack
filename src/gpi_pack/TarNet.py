@@ -462,14 +462,15 @@ def estimate_k_ate(
         elif not isinstance(input, np.ndarray):
             raise ValueError("Input must be either numpy array or list, but not ", type(input))
     R, Y, T = inputs
-    
+
     if formula_C is not None:
         if data is None:
             raise ValueError("If formula_C is provided, data must be provided as well.")
-        
+
         formula_C = "-1 + " + formula_C #to remove intercept
         C = dmatrix(formula_C, data, return_type='dataframe').values
-    
+        R = np.concatenate([R, C], axis=1)
+
     if C is not None:
         C = np.array(C)
         if C.shape[0] != R.shape[0]:
@@ -491,7 +492,7 @@ def estimate_k_ate(
         )
         model.fit(R = r_train, Y = y_train, T = t_train, valid_perc = valid_perc)
         y0_pred, y1_pred, fr = model.predict(r_test)
-        
+
         if ps_model == SpectralNormClassifier:
             #Make sure to set the input_dim to the last layer of the shared representation
             #when using the default ps_model (SpectralNormClassifier)
@@ -730,8 +731,6 @@ def estimate_k_categorical(
         
         #estimate pseudo outcomes (predicted probability)
         for c in range(num_categories):
-             # Create a binary indicator for category c
-            Y_c = (Y == c).astype(np.float32)
             # Compute the pseudo outcome for category c using the original dml_score function
             psi[test_index, c] = dml_score(t_test, y_test, tpreds, y1_pred[:, c], y0_pred[:, c])
     
@@ -777,6 +776,9 @@ class TarNetHyperparameterTuner:
     def __init__(
         self,
         T, Y, R,
+        C: Union[list, np.ndarray] = None,
+        formula_C: str = None,
+        data: pd.DataFrame = None,
         epoch: list[str] = ["100", "200"],
         batch_size: int = 64,
         valid_perc: float = 0.2,
@@ -790,7 +792,19 @@ class TarNetHyperparameterTuner:
         patience_max: int = 20,
     ):
         #loading data
-        self.T = T; self.Y = Y; self.R = R
+        self.T = T; self.Y = Y
+        if formula_C is not None:
+            if data is None:
+                raise ValueError("If formula_C is provided, data must be provided as well.")
+            formula_C = "-1 + " + formula_C
+            C = dmatrix(formula_C, data, return_type='dataframe').values
+            R = np.concatenate([R, C], axis=1)
+        if C is not None:
+            C = np.array(C)
+            if C.shape[0] != R.shape[0]:
+                raise ValueError("C and R must have the same number of samples")
+            R = np.concatenate([R, C], axis=1)
+        self.R = R
 
         #setting hyperparamaters (optional)
         self.epoch = epoch; self.batch_size = batch_size
