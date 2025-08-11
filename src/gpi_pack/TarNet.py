@@ -983,6 +983,8 @@ def batch_estimate_ate(
     outcome_cols: list,
     treatment_col: str,
     hidden_states: Union[np.ndarray, torch.Tensor],
+    formula_C: str = None,
+    C: Union[np.ndarray, list] = None,
     **kwargs
 ):
     """
@@ -993,17 +995,31 @@ def batch_estimate_ate(
         outcome_cols: List of column names for outcomes
         treatment_col: Column name for treatment
         hidden_states: Hidden state representations (must match df rows)
+        formula_C: Optional Patsy formula for covariates (e.g., "conf1 + conf2")
+        C: Optional covariate matrix (alternative to formula_C)
         **kwargs: Additional arguments for estimate_k_ate (K, lr, batch_size, etc.)
     
     Returns:
         DataFrame with ATE results for each outcome
     
-    Example:
+    Examples:
+        # Without covariates
         results_df = batch_estimate_ate(
-            df=df1_r,
-            outcome_cols=['attitude_strength', 'attitude_strength2', 'belief_strength'],
+            df=df1,
+            outcome_cols=['attitude_strength', 'attitude_strength2'],
             treatment_col='treatment',
-            hidden_states=hidden_states_filtered,
+            hidden_states=hidden_states,
+            batch_size=320,
+            K=2
+        )
+        
+        # With covariates using formula
+        results_df = batch_estimate_ate(
+            df=df1,
+            outcome_cols=['attitude_strength', 'attitude_strength2'],
+            treatment_col='treatment',
+            hidden_states=hidden_states,
+            formula_C="age + gender + education",
             batch_size=320,
             K=2
         )
@@ -1040,12 +1056,35 @@ def batch_estimate_ate(
             Y_valid = df.loc[valid_mask, outcome_col].values
             T_valid = df.loc[valid_mask, treatment_col].values
             
-            ate, se = estimate_k_ate(
-                R=R_valid,
-                Y=Y_valid,
-                T=T_valid,
-                **kwargs
-            )
+            # Pass covariates if provided
+            if formula_C is not None:
+                # Use the valid subset of the dataframe for formula
+                df_valid = df.loc[valid_mask].copy()
+                ate, se = estimate_k_ate(
+                    R=R_valid,
+                    Y=Y_valid,
+                    T=T_valid,
+                    formula_C=formula_C,
+                    data=df_valid,
+                    **kwargs
+                )
+            elif C is not None:
+                # Use the valid subset of C
+                C_valid = C[valid_mask] if isinstance(C, np.ndarray) else np.array(C)[valid_mask]
+                ate, se = estimate_k_ate(
+                    R=R_valid,
+                    Y=Y_valid,
+                    T=T_valid,
+                    C=C_valid,
+                    **kwargs
+                )
+            else:
+                ate, se = estimate_k_ate(
+                    R=R_valid,
+                    Y=Y_valid,
+                    T=T_valid,
+                    **kwargs
+                )
             
             results.append({
                 'outcome': outcome_col,
