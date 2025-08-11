@@ -21,6 +21,7 @@ from .TNutil import (
 )
 
 from typing import Union
+from scipy.stats import norm
 
 class TarNet:
     '''
@@ -136,8 +137,23 @@ class TarNet:
 
         train_dataset = TensorDataset(r_train, t_train, y_train)
         valid_dataset = TensorDataset(r_test, t_test, y_test)
-        self.train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size, sampler = RandomSampler(train_dataset))
-        self.valid_dataloader = DataLoader(valid_dataset, batch_size=self.batch_size, sampler = SequentialSampler(valid_dataset))
+        
+        # FIX: Drop last batch if it's size 1 and BatchNorm is enabled
+        drop_last_train = self.bn and (len(train_dataset) % self.batch_size == 1)
+        drop_last_valid = self.bn and (len(valid_dataset) % self.batch_size == 1)
+        
+        self.train_dataloader = DataLoader(
+            train_dataset, 
+            batch_size=self.batch_size, 
+            sampler=RandomSampler(train_dataset),
+            drop_last=drop_last_train
+        )
+        self.valid_dataloader = DataLoader(
+            valid_dataset, 
+            batch_size=self.batch_size, 
+            sampler=SequentialSampler(valid_dataset),
+            drop_last=drop_last_valid
+        )
 
     def fit(self,
             R: Union[np.ndarray, torch.Tensor],
@@ -873,3 +889,105 @@ def load_hiddens(directory: str, hidden_list: list, prefix: str = None, device: 
 
     tensors = torch.stack(tensors, dim=0).squeeze(1).numpy()
     return tensors
+
+
+def estimate_multiple_outcomes(
+    R: Union[np.ndarray, torch.Tensor],
+    Y_dict: dict,
+    T: Union[np.ndarray, torch.Tensor],
+    K: int = 2,
+    lr: float = 2e-5,
+    architecture_y: list = [200, 1],
+    architecture_z: list = [2048],
+    batch_size: int = 320,
+    verbose: bool = True,
+    **kwargs
+):
+    """
+    Estimate ATE for multiple outcomes using the same treatment and covariates.
+    
+    Args:
+        R: Covariates/hidden states
+        Y_dict: Dictionary with outcome names as keys and outcome arrays as values
+        T: Treatment variable
+        K: Number of cross-fitting folds
+        lr: Learning rate
+        architecture_y: Architecture for outcome model
+        architecture_z: Architecture for deconfounder
+        batch_size: Batch size for training
+        verbose: Whether to print progress
+        **kwargs: Additional arguments to pass to estimate_k_ate
+    
+    Returns:
+        results_df: DataFrame with columns ['outcome', 'ate', 'se', 'ci_lower', 'ci_upper']
+    
+    Example:
+        outcomes = {
+            'attitude_strength': df1_r['attitude_strength'].values,
+            'attitude_strength2': df1_r['attitude_strength2'].values,
+            'other_outcome': df1_r['other_outcome'].values
+        }
+        
+        results = estimate_multiple_outcomes(
+            R=hidden_states_filtered,
+            Y_dict=outcomes,
+            T=df1_r['treatment'].values,
+            batch_size=320
+        )
+    """
+    import pandas as pd
+    from tqdm import tqdm
+    
+    results = []
+    
+    for outcome_name, Y_values in tqdm(Y_dict.items(), desc="Processing outcomes", disable=not verbose):
+        if verbose:
+            print(f"\nEstimating ATE for outcome: {outcome_name}")
+        
+        try:
+            ate, se = estimate_k_ate(
+                R=R,
+                Y=Y_values,
+                T=T,
+                K=K,
+                lr=lr,
+                architecture_y=architecture_y,
+                architecture_z=architecture_z,
+                batch_size=batch_size,
+                verbose=verbose,
+                **kwargs
+            )
+            
+            results.append({
+                'outcome': outcome_name,
+                'ate': ate,
+                'se': se,
+                'ci_lower': ate - 1.96 * se,
+                'ci_upper': ate + 1.96 * se,
+                'p_value': 2 * (1 - norm.cdf(abs(ate / se))) if se > 0 else np.nan
+            })
+            
+            if verbose:
+                print(f"  ATE = {ate:.4f} (SE = {se:.4f}, p = {results[-1]['p_value']:.4f})")
+            
+        except Exception as e:
+            if verbose:
+                print(f"  Failed: {str(e)}")
+            results.append({
+                'outcome': outcome_name,
+                'ate': np.nan,
+                'se': np.nan,
+                'ci_lower': np.nan,
+                'ci_upper': np.nan,
+                'p_value': np.nan
+            })
+    
+    results_df = pd.DataFrame(results)
+    
+    if verbose:
+        print("\n" + "="*60)
+        print("Summary of Results:")
+        print("="*60)
+        print(results_df.to_string(index=False))
+    
+    return results_df
