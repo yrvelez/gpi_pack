@@ -137,23 +137,8 @@ class TarNet:
 
         train_dataset = TensorDataset(r_train, t_train, y_train)
         valid_dataset = TensorDataset(r_test, t_test, y_test)
-        
-        # FIX: Drop last batch if it's size 1 and BatchNorm is enabled
-        drop_last_train = self.bn and (len(train_dataset) % self.batch_size == 1)
-        drop_last_valid = self.bn and (len(valid_dataset) % self.batch_size == 1)
-        
-        self.train_dataloader = DataLoader(
-            train_dataset, 
-            batch_size=self.batch_size, 
-            sampler=RandomSampler(train_dataset),
-            drop_last=drop_last_train
-        )
-        self.valid_dataloader = DataLoader(
-            valid_dataset, 
-            batch_size=self.batch_size, 
-            sampler=SequentialSampler(valid_dataset),
-            drop_last=drop_last_valid
-        )
+        self.train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size, sampler = RandomSampler(train_dataset))
+        self.valid_dataloader = DataLoader(valid_dataset, batch_size=self.batch_size, sampler = SequentialSampler(valid_dataset))
 
     def fit(self,
             R: Union[np.ndarray, torch.Tensor],
@@ -1014,7 +999,7 @@ def batch_estimate_ate(
         DataFrame with ATE results for each outcome
     
     Example:
-        results = batch_estimate_ate(
+        results_df = batch_estimate_ate(
             df=df1_r,
             outcome_cols=['attitude_strength', 'attitude_strength2', 'belief_strength'],
             treatment_col='treatment',
@@ -1023,19 +1008,42 @@ def batch_estimate_ate(
             K=2
         )
     """
+    from tqdm import tqdm
     results = []
     
+    # Get treatment and check for NaN
+    treatment_mask = df[treatment_col].notna()
+    
     for outcome_col in tqdm(outcome_cols, desc="Processing outcomes"):
-        # Skip if outcome has NaN values
-        valid_mask = df[outcome_col].notna()
+        # Get valid rows (non-NaN for both outcome and treatment)
+        outcome_mask = df[outcome_col].notna()
+        valid_mask = treatment_mask & outcome_mask
+        
+        if not valid_mask.any():
+            print(f"Skipped {outcome_col}: No valid data")
+            results.append({
+                'outcome': outcome_col,
+                'ate': np.nan,
+                'se': np.nan,
+                'ci_lower': np.nan,
+                'ci_upper': np.nan,
+                'p_value': np.nan
+            })
+            continue
+            
         if not valid_mask.all():
-            print(f"Warning: {outcome_col} has {(~valid_mask).sum()} NaN values, skipping those rows")
+            print(f"Warning: {outcome_col} has {(~valid_mask).sum()} invalid rows, using {valid_mask.sum()} valid rows")
             
         try:
+            # Get valid data
+            R_valid = hidden_states[valid_mask] if isinstance(hidden_states, np.ndarray) else hidden_states[valid_mask.values]
+            Y_valid = df.loc[valid_mask, outcome_col].values
+            T_valid = df.loc[valid_mask, treatment_col].values
+            
             ate, se = estimate_k_ate(
-                R=hidden_states[valid_mask] if not valid_mask.all() else hidden_states,
-                Y=df.loc[valid_mask, outcome_col].values,
-                T=df.loc[valid_mask, treatment_col].values,
+                R=R_valid,
+                Y=Y_valid,
+                T=T_valid,
                 **kwargs
             )
             
@@ -1047,9 +1055,10 @@ def batch_estimate_ate(
                 'ci_upper': ate + 1.96 * se,
                 'p_value': 2 * (1 - norm.cdf(abs(ate / se))) if se > 0 else np.nan
             })
+            print(f"✓ {outcome_col}: ATE = {ate:.4f} (SE = {se:.4f})")
             
         except Exception as e:
-            print(f"Failed for {outcome_col}: {e}")
+            print(f"✗ Failed for {outcome_col}: {e}")
             results.append({
                 'outcome': outcome_col,
                 'ate': np.nan,
