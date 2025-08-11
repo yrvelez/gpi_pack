@@ -44,6 +44,7 @@ def generate_text(
     tokenizer_config: dict = {},
     model_config: dict = {},
     pooling: str = "last",
+    indices: list = None,
     ) -> list[str, list[int]]:
     """
     Generate text based on the prompts and save the hidden states.
@@ -64,6 +65,7 @@ def generate_text(
     - pooling: str, pooling strategy for hidden states (default: "last")
         - "last": use the last hidden states of the first token (it contains semantic information of the entire sentences)
         - "mean": use the mean of the last hidden states of all tokens
+    - indices: list[int], optional list of original indices for resume functionality
 
     Output:
     - generated_texts: list[str], list of generated texts
@@ -84,7 +86,14 @@ def generate_text(
     model_config.update({"temperature" : None})
     model_config.update({"top_p" : None})
     
+    # Use provided indices or default to sequential numbering
+    if indices is None:
+        indices = list(range(len(prompts)))
+    
     for k, prompt in enumerate(tqdm(prompts, desc="Generating texts")):
+        # Use the original index for saving files
+        save_index = indices[k]
+        
         messages = [
             {"role": "system", "content": instruction},
             {"role": "user", "content": prompt},
@@ -111,7 +120,7 @@ def generate_text(
         else:
             raise ValueError("Invalid pooling strategy. Choose from 'last', 'mean', or 'all'.")
         #save the hidden states
-        torch.save(hidden_all, f"{save_hidden}/{prefix_hidden}{k}.pt")
+        torch.save(hidden_all, f"{save_hidden}/{prefix_hidden}{save_index}.pt")
         
         #decode the generated tokens back to texts
         response = outputs.sequences[0][input_ids.shape[-1]:]
@@ -146,6 +155,7 @@ def extract_and_save_hidden_states(
     tokenizer_config: dict = {},
     model_config: dict = {},
     pooling: str = "last",
+    resume: bool = False,
 ):
     """
     High-level function to load prompts, generate texts, extract hidden states from an LLM,
@@ -165,6 +175,7 @@ def extract_and_save_hidden_states(
             - "last": use the last hidden states of the first token (it contains semantic information of the entire sentences)
             - "mean": use the mean of the last hidden states of all tokens
             - "all": use the last hidden states of all tokens (not recommended)
+        resume (bool, optional): If True, skip prompts that already have hidden state files (default: False).
     Returns:
         None: The function saves the generated texts and hidden states to specified files.
     """
@@ -173,20 +184,71 @@ def extract_and_save_hidden_states(
         os.makedirs(output_hidden_dir)
         logger.info(f"Created directory: {output_hidden_dir}")
 
+    # Check for existing hidden state files if resume is True
+    prompts_to_process = prompts.copy()
+    indices_to_process = list(range(len(prompts)))
+    
+    if resume:
+        # Filter out prompts that already have hidden state files
+        filtered_prompts = []
+        filtered_indices = []
+        skipped_count = 0
+        
+        for i, prompt in enumerate(prompts):
+            hidden_file = f"{output_hidden_dir}/{prefix_hidden}{i}.pt"
+            if os.path.exists(hidden_file):
+                logger.info(f"Skipping prompt {i} (already exists): {hidden_file}")
+                skipped_count += 1
+            else:
+                filtered_prompts.append(prompt)
+                filtered_indices.append(i)
+        
+        prompts_to_process = filtered_prompts
+        indices_to_process = filtered_indices
+        
+        if skipped_count > 0:
+            logger.info(f"Resuming: Skipped {skipped_count} already processed prompts")
+        
+        if not prompts_to_process:
+            logger.info("All prompts have already been processed. Nothing to do.")
+            return
+
     instruction = get_instruction(task_type)
     logger.info(f"Using instruction: {instruction}")
     generated_texts = generate_text(
         tokenizer = tokenizer, 
         model = model, 
         instruction = instruction, 
-        prompts = prompts, 
+        prompts = prompts_to_process, 
         max_new_tokens = max_new_tokens,
         save_hidden = output_hidden_dir,
         prefix_hidden= prefix_hidden,
         tokenizer_config= tokenizer_config,
         model_config= model_config,
-        pooling= pooling
+        pooling= pooling,
+        indices= indices_to_process if resume else None
     )
 
-    save_generated_texts(generated_texts, prompts, save_name)
+    # Load existing results if resuming
+    if resume and os.path.exists(f"{save_name}.pkl"):
+        import pickle
+        with open(f"{save_name}.pkl", 'rb') as f:
+            existing_df = pd.read_pickle(f"{save_name}.pkl")
+            existing_texts = existing_df["X"].tolist()
+            existing_prompts = existing_df["P"].tolist()
+        
+        # Combine existing and new results
+        all_texts = existing_texts.copy()
+        for idx, text in zip(indices_to_process, generated_texts):
+            # Insert or update at the correct position
+            if idx < len(all_texts):
+                all_texts[idx] = text
+            else:
+                all_texts.extend([None] * (idx - len(all_texts) + 1))
+                all_texts[idx] = text
+        
+        save_generated_texts(all_texts, prompts, save_name)
+    else:
+        save_generated_texts(generated_texts, prompts_to_process if resume else prompts, save_name)
+    
     logger.info("Extraction and saving complete.")
