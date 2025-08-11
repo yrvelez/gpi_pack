@@ -991,3 +991,72 @@ def estimate_multiple_outcomes(
         print(results_df.to_string(index=False))
     
     return results_df
+
+
+def batch_estimate_ate(
+    df: pd.DataFrame,
+    outcome_cols: list,
+    treatment_col: str,
+    hidden_states: Union[np.ndarray, torch.Tensor],
+    **kwargs
+):
+    """
+    Convenience function to estimate ATE for multiple outcomes from a DataFrame.
+    
+    Args:
+        df: DataFrame containing outcomes and treatment
+        outcome_cols: List of column names for outcomes
+        treatment_col: Column name for treatment
+        hidden_states: Hidden state representations (must match df rows)
+        **kwargs: Additional arguments for estimate_k_ate (K, lr, batch_size, etc.)
+    
+    Returns:
+        DataFrame with ATE results for each outcome
+    
+    Example:
+        results = batch_estimate_ate(
+            df=df1_r,
+            outcome_cols=['attitude_strength', 'attitude_strength2', 'belief_strength'],
+            treatment_col='treatment',
+            hidden_states=hidden_states_filtered,
+            batch_size=320,
+            K=2
+        )
+    """
+    results = []
+    
+    for outcome_col in tqdm(outcome_cols, desc="Processing outcomes"):
+        # Skip if outcome has NaN values
+        valid_mask = df[outcome_col].notna()
+        if not valid_mask.all():
+            print(f"Warning: {outcome_col} has {(~valid_mask).sum()} NaN values, skipping those rows")
+            
+        try:
+            ate, se = estimate_k_ate(
+                R=hidden_states[valid_mask] if not valid_mask.all() else hidden_states,
+                Y=df.loc[valid_mask, outcome_col].values,
+                T=df.loc[valid_mask, treatment_col].values,
+                **kwargs
+            )
+            
+            results.append({
+                'outcome': outcome_col,
+                'ate': ate,
+                'se': se,
+                'ci_lower': ate - 1.96 * se,
+                'ci_upper': ate + 1.96 * se,
+                'p_value': 2 * (1 - norm.cdf(abs(ate / se))) if se > 0 else np.nan
+            })
+            
+        except Exception as e:
+            print(f"Failed for {outcome_col}: {e}")
+            results.append({
+                'outcome': outcome_col,
+                'ate': np.nan,
+                'se': np.nan,
+                'ci_lower': np.nan,
+                'ci_upper': np.nan,
+                'p_value': np.nan
+            })
+    
+    return pd.DataFrame(results)
