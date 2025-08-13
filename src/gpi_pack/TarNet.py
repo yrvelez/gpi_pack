@@ -1027,13 +1027,35 @@ def batch_estimate_ate(
     from tqdm import tqdm
     results = []
     
-    # Get treatment and check for NaN
+    # Get treatment mask
     treatment_mask = df[treatment_col].notna()
     
+    # Get covariate mask if C is provided
+    if C is not None:
+        if isinstance(C, pd.DataFrame):
+            C_mask = C.notna().all(axis=1)
+            C_array = C.values
+        elif isinstance(C, np.ndarray):
+            # Check for NaN in numpy array
+            if len(C.shape) == 2:
+                C_mask = ~np.isnan(C).any(axis=1)
+            else:
+                C_mask = ~np.isnan(C)
+            C_array = C
+        else:
+            C_array = np.array(C)
+            if len(C_array.shape) == 2:
+                C_mask = ~np.isnan(C_array).any(axis=1)
+            else:
+                C_mask = ~np.isnan(C_array)
+    else:
+        C_mask = pd.Series([True] * len(df), index=df.index)
+        C_array = None
+    
     for outcome_col in tqdm(outcome_cols, desc="Processing outcomes"):
-        # Get valid rows (non-NaN for both outcome and treatment)
+        # Get valid rows (non-NaN for outcome, treatment, and covariates)
         outcome_mask = df[outcome_col].notna()
-        valid_mask = treatment_mask & outcome_mask
+        valid_mask = treatment_mask & outcome_mask & C_mask
         
         if not valid_mask.any():
             print(f"Skipped {outcome_col}: No valid data")
@@ -1048,18 +1070,28 @@ def batch_estimate_ate(
             continue
             
         if not valid_mask.all():
-            print(f"Warning: {outcome_col} has {(~valid_mask).sum()} invalid rows, using {valid_mask.sum()} valid rows")
+            n_invalid = (~valid_mask).sum()
+            n_valid = valid_mask.sum()
+            print(f"Note: {outcome_col} using {n_valid} valid rows (excluded {n_invalid} with missing data)")
             
         try:
-            # Get valid data
-            R_valid = hidden_states[valid_mask] if isinstance(hidden_states, np.ndarray) else hidden_states[valid_mask.values]
+            # Get valid indices
+            if isinstance(valid_mask, pd.Series):
+                valid_indices = valid_mask[valid_mask].index.tolist()
+                valid_mask_array = valid_mask.values
+            else:
+                valid_indices = np.where(valid_mask)[0]
+                valid_mask_array = valid_mask
+            
+            # Get valid data using consistent indexing
+            R_valid = hidden_states[valid_mask_array] if isinstance(hidden_states, np.ndarray) else hidden_states[valid_indices]
             Y_valid = df.loc[valid_mask, outcome_col].values
             T_valid = df.loc[valid_mask, treatment_col].values
             
             # Pass covariates if provided
             if formula_C is not None:
                 # Use the valid subset of the dataframe for formula
-                df_valid = df.loc[valid_mask].copy()
+                df_valid = df.loc[valid_mask].copy().reset_index(drop=True)
                 ate, se = estimate_k_ate(
                     R=R_valid,
                     Y=Y_valid,
@@ -1068,9 +1100,9 @@ def batch_estimate_ate(
                     data=df_valid,
                     **kwargs
                 )
-            elif C is not None:
+            elif C_array is not None:
                 # Use the valid subset of C
-                C_valid = C[valid_mask] if isinstance(C, np.ndarray) else np.array(C)[valid_mask]
+                C_valid = C_array[valid_mask_array]
                 ate, se = estimate_k_ate(
                     R=R_valid,
                     Y=Y_valid,
